@@ -2,8 +2,6 @@
 # Created by Ziv Kaspersky at 11/23/2019
 
 # Standard packages
-from __future__ import division
-from __future__ import print_function
 import sys
 import logging
 import argparse
@@ -13,30 +11,31 @@ from typing import List
 
 # External packages
 from impacket import version
+from impacket.dcerpc.v5.transport import DCERPCTransport
 from impacket.nt_errors import STATUS_MORE_ENTRIES
 from impacket.dcerpc.v5 import transport, samr
 from impacket.dcerpc.v5.rpcrt import DCERPCException
-from impacket.smb import SMB_DIALECT
 
 # Project packages
 from task.exceptions import ListUsersException
 from task.objects import User
-from task.test import LOG_FORMAT
+from task.old import LOG_FORMAT
 
+logger = logging.getLogger(__name__)
 
 class SAMRConnection:
     """ This class can be used to connect to a remote windows machine and using SAMR list/add users/groups"""
     def __init__(self, username: str = '', password: str = '', domain: str = '', hashes: str = None,
-                 aesKey: str = None, doKerberos: bool = False, kdcHost: str = None, port: int = 445):
+                 aes_key: str = None, do_kerberos: bool = False, kdc_host: str = None, port: int = 445):
 
         self.__username = username
         self.__password = password
         self.__domain = domain
         self.__lmhash = ''
         self.__nthash = ''
-        self.__aesKey = aesKey
-        self.__doKerberos = doKerberos
-        self.__kdcHost = kdcHost
+        self.__aes_key = aes_key
+        self.__do_kerberos = do_kerberos
+        self.__kdc_host = kdc_host
         self.__port = port
 
         if hashes is not None:
@@ -48,36 +47,25 @@ class SAMRConnection:
         t /= 10000000
         return t
 
-    def list_all_users(self, remoteName: str, remoteHost: str) -> List[User]:
+    def list_all_users(self, remote_name: str, remote_host: str) -> List[User]:
         """return a list of users and shares registered present at
         remoteName. remoteName is a valid host name or IP address.
         """
-
+        # Create an DCE/RPC session
         entries = []
 
-        logging.info('Retrieving endpoint list from %s' % remoteName)
 
-        stringbinding = r'ncacn_np:%s[\pipe\samr]' % remoteName
-        logging.debug('StringBinding %s' % stringbinding)
-        rpctransport = transport.DCERPCTransportFactory(stringbinding)
-        rpctransport.set_dport(self.__port)
-        rpctransport.setRemoteHost(remoteHost)
 
-        if hasattr(rpctransport, 'preferred_dialect'):
-            rpctransport.preferred_dialect(SMB_DIALECT)
-        if hasattr(rpctransport, 'set_credentials'):
-            # This method exists only for selected protocol sequences.
-            rpctransport.set_credentials(self.__username, self.__password, self.__domain, self.__lmhash,
-                                         self.__nthash, self.__aesKey)
-        rpctransport.set_kerberos(self.__doKerberos, self.__kdcHost)
+        rpctransport = self.__set_rpc_connection(remote_name, remote_host)
 
         try:
-            entries = self.__fetchList(rpctransport)
+            entries = self.__fetch_user_list(rpctransport)
         except Exception as e:
             logging.critical(str(e))
             logging.debug('StackTrace: ', exc_info=True)
 
         users = [User(*entry) for entry in entries]
+
         if entries:
             num = len(entries)
             if 1 == num:
@@ -89,7 +77,45 @@ class SAMRConnection:
 
         return users
 
-    def __fetchList(self, rpctransport):
+    def __set_rpc_connection(self, remote_name, remote_host) -> DCERPCTransport:
+        """
+        Create an rpc session
+        :param remote_name: remote name to use in rpc connection string
+        :param remote_host: remote host to connect to
+        :return: DCE/RPC Transport obj
+        """
+        logging.info(f'Retrieving endpoint list from {remoteName}')
+
+        string_binding = r'ncacn_np:%s[\pipe\samr]' % remote_name
+        # logging.debug('StringBinding %s' % string_binding)
+        rpc_transport = transport.DCERPCTransportFactory(string_binding)
+        rpc_transport.set_dport(self.__port)
+        rpc_transport.setRemoteHost(remote_host)
+
+        if hasattr(rpc_transport, 'set_credentials'):
+            # This method exists only for selected protocol sequences.
+            rpc_transport.set_credentials(self.__username, self.__password, self.__domain, self.__lmhash,
+                                          self.__nthash, self.__aes_key)
+        rpc_transport.set_kerberos(self.__do_kerberos, self.__kdc_host)
+        return rpc_transport
+
+    @staticmethod
+    def __dce_connect(rpc_transport):
+        """
+        Create and bind an RPC session to remote host
+        :param rpc_transport: (DCERPCTransportFactory) RPC session settings
+        :return: DCE/RPC session
+        """
+        dce = rpc_transport.get_dce_rpc()
+        dce.connect()
+        dce.bind(samr.MSRPC_UUID_SAMR)
+        return dce
+
+    @staticmethod
+    def __dce_disconnect(dce):
+        dce.disconnect()
+
+    def __fetch_user_list(self, rpctransport):
         dce = rpctransport.get_dce_rpc()
 
         entries = []
@@ -103,39 +129,38 @@ class SAMRConnection:
 
             resp = samr.hSamrEnumerateDomainsInSamServer(dce, serverHandle)
             domains = resp['Buffer']['Buffer']
+            domain_names = [domain["Name"] for domain in domains]
+            logger.info(f'Found domain(s): {", ".join(domain_names)}')
 
-            print('Found domain(s):')
-            for domain in domains:
-                print(" . %s" % domain['Name'])
+            for domain_name in domain_names:
+                logging.info('Looking up users in domain "%s"' % domain_name)
 
-            logging.info("Looking up users in domain %s" % domains[0]['Name'])
+                resp = samr.hSamrLookupDomainInSamServer(dce, serverHandle, domain_name)
 
-            resp = samr.hSamrLookupDomainInSamServer(dce, serverHandle, domains[0]['Name'])
+                resp = samr.hSamrOpenDomain(dce, serverHandle=serverHandle, domainId=resp['DomainId'])
+                domainHandle = resp['DomainHandle']
 
-            resp = samr.hSamrOpenDomain(dce, serverHandle=serverHandle, domainId=resp['DomainId'])
-            domainHandle = resp['DomainHandle']
+                status = STATUS_MORE_ENTRIES
+                enumerationContext = 0
+                while status == STATUS_MORE_ENTRIES:
+                    try:
+                        resp = samr.hSamrEnumerateUsersInDomain(dce, domainHandle, enumerationContext=enumerationContext)
+                    except DCERPCException as e:
+                        if str(e).find('STATUS_MORE_ENTRIES') < 0:
+                            raise
+                        resp = e.get_packet()
 
-            status = STATUS_MORE_ENTRIES
-            enumerationContext = 0
-            while status == STATUS_MORE_ENTRIES:
-                try:
-                    resp = samr.hSamrEnumerateUsersInDomain(dce, domainHandle, enumerationContext=enumerationContext)
-                except DCERPCException as e:
-                    if str(e).find('STATUS_MORE_ENTRIES') < 0:
-                        raise
-                    resp = e.get_packet()
+                    for user in resp['Buffer']['Buffer']:
+                        r = samr.hSamrOpenUser(dce, domainHandle, samr.MAXIMUM_ALLOWED, user['RelativeId'])
+                        # print("Found user: %s, uid = %d" % (user['Name'], user['RelativeId']))
+                        info = samr.hSamrQueryInformationUser2(dce, r['UserHandle'],
+                                                               samr.USER_INFORMATION_CLASS.UserAllInformation)
+                        entry = (user['Name'], user['RelativeId'], info['Buffer']['All'])
+                        entries.append(entry)
+                        samr.hSamrCloseHandle(dce, r['UserHandle'])
 
-                for user in resp['Buffer']['Buffer']:
-                    r = samr.hSamrOpenUser(dce, domainHandle, samr.MAXIMUM_ALLOWED, user['RelativeId'])
-                    print("Found user: %s, uid = %d" % (user['Name'], user['RelativeId']))
-                    info = samr.hSamrQueryInformationUser2(dce, r['UserHandle'],
-                                                           samr.USER_INFORMATION_CLASS.UserAllInformation)
-                    entry = (user['Name'], user['RelativeId'], info['Buffer']['All'])
-                    entries.append(entry)
-                    samr.hSamrCloseHandle(dce, r['UserHandle'])
-
-                enumerationContext = resp['EnumerationContext']
-                status = resp['ErrorCode']
+                    enumerationContext = resp['EnumerationContext']
+                    status = resp['ErrorCode']
 
         except ListUsersException as e:
             logging.critical("Error listing users: %s" % e)
