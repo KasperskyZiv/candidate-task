@@ -14,10 +14,18 @@ logging.basicConfig(level=logging.DEBUG,
                     format=LOG_FORMAT,
                     stream=sys.stdout)
 
+# Can be changed or loaded from file according to env
+EXPECTED_USERS = [User(user_name='Administrator', uid=500),
+                  User(user_name='Guest', uid=501),
+                  User(user_name='krbtgt', uid=502),
+                  User(user_name='zivk', uid=1105)]
+
 
 class TestSamrConnection:
     @classmethod
     def setup_class(cls):
+        # Can be changed or loaded from file according to env
+        # Also, possible to add other tests for working with hashes, kerberos etc..
         cls.options = Namespace(aesKey=None, dc_ip='192.168.1.150', debug=True, hashes=None, k=False, no_pass=False,
                                 port='445',
                                 target='kaspersky.local/zivk:1q2w#E$R@192.168.1.150', target_ip='192.168.1.150')
@@ -28,35 +36,32 @@ class TestSamrConnection:
                                              cls.options.k,
                                              cls.options.dc_ip,
                                              int(cls.options.port))
-        # delete test user
-        cls.test_delete_user(cls)
 
     def test_list_all_users(self):
         users = self.samr_connection.list_all_users(self.target.remote_name, self.options.target_ip)
-        assert [User(username='Administrator', uid=500),
-                User(username='Guest', uid=501),
-                User(username='krbtgt', uid=502),
-                User(username='zivk', uid=1105)] == users, "listed users differ then expected"
+        assert EXPECTED_USERS == users, "listed users differ then expected"
 
     def test_add_user(self):
         self.samr_connection.create_user(self.target.remote_name, self.options.target_ip, "frank")
         users = self.samr_connection.list_all_users(self.target.remote_name, self.options.target_ip)
-        assert [User(username='Administrator', uid=500),
-                User(username='Guest', uid=501),
-                User(username='krbtgt', uid=502),
-                User(username='zivk', uid=1105),
-                User(username='frank', uid=1108)]
+        assert all(user in users for user in EXPECTED_USERS) and any(user.user_name == "frank" for user in users)
 
-    def test_delete_user(self):
+    def test_del_user(self):
         users = self.samr_connection.list_all_users(self.target.remote_name, self.options.target_ip)
         uid = None
         for user in users:
-            if user.username == "frank":
+            if user.user_name == "frank":
                 uid = user.uid
-        if uid != None:
+        if uid != None:  # not sure if uid 0 is possible
             self.samr_connection.delete_user(self.target.remote_name, self.options.target_ip, uid)
-            users = self.samr_connection.list_all_users(self.target.remote_name, self.options.target_ip)
-            assert [User(username='Administrator', uid=500),
-                    User(username='Guest', uid=501),
-                    User(username='krbtgt', uid=502),
-                    User(username='zivk', uid=1105)] == users, "listed users differ then expected"
+            self.test_list_all_users()
+
+    def test_list_groups(self):
+        groups = self.samr_connection.list_all_groups(self.target.remote_name, self.options.target_ip)
+        assert 33 == (len(groups)), "number of groups is not as expected"
+
+    def test_add_group(self):
+        pass
+
+    def test_del_group(self):
+        pass

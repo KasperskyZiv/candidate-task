@@ -10,3 +10,9 @@ class ListUsersException(SamrError):
 
 class AddUserException(SamrError):
     pass
+
+class DeleteUserException(SamrError):
+    pass
+
+class ListGroupsException(SamrError):
+    pass
