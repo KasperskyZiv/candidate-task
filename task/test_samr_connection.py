@@ -5,6 +5,9 @@ import sys
 from argparse import Namespace
 from pprint import pprint
 
+from impacket.dcerpc.v5 import samr
+
+from task.exceptions import AddGroupException
 from task.objects import Target, User
 from task.samr_connection import SAMRConnection
 
@@ -15,10 +18,10 @@ logging.basicConfig(level=logging.DEBUG,
                     stream=sys.stdout)
 
 # Can be changed or loaded from file according to env
-EXPECTED_USERS = [User(user_name='Administrator', uid=500),
-                  User(user_name='Guest', uid=501),
-                  User(user_name='krbtgt', uid=502),
-                  User(user_name='zivk', uid=1105)]
+EXPECTED_USERS = [User(name='Administrator', uid=500),
+                  User(name='Guest', uid=501),
+                  User(name='krbtgt', uid=502),
+                  User(name='zivk', uid=1105)]
 
 
 class TestSamrConnection:
@@ -44,24 +47,45 @@ class TestSamrConnection:
     def test_add_user(self):
         self.samr_connection.create_user(self.target.remote_name, self.options.target_ip, "frank")
         users = self.samr_connection.list_all_users(self.target.remote_name, self.options.target_ip)
-        assert all(user in users for user in EXPECTED_USERS) and any(user.user_name == "frank" for user in users)
+        assert all(user in users for user in EXPECTED_USERS) and any(user.name == "frank" for user in users)
 
     def test_del_user(self):
         users = self.samr_connection.list_all_users(self.target.remote_name, self.options.target_ip)
         uid = None
         for user in users:
-            if user.user_name == "frank":
+            if user.name == "frank":
                 uid = user.uid
+                break
         if uid != None:  # not sure if uid 0 is possible
             self.samr_connection.delete_user(self.target.remote_name, self.options.target_ip, uid)
             self.test_list_all_users()
 
     def test_list_groups(self):
         groups = self.samr_connection.list_all_groups(self.target.remote_name, self.options.target_ip)
-        assert 33 == (len(groups)), "number of groups is not as expected"
+        # pprint(groups)
+        assert 13 == (len(groups)), "number of groups is not as expected"
+
+    def test_list_aliases(self):
+        aliases = self.samr_connection.list_all_aliases(self.target.remote_name, self.options.target_ip)
+        assert 33 == (len(aliases)), "number of groups is not as expected"
 
     def test_add_group(self):
-        pass
+        try:
+            self.samr_connection.create_group(self.target.remote_name, self.options.target_ip, "Avengers")
+        except AddGroupException as e:
+            if "The specified group already exists" in str(e.args[0]):
+                # Group already exists
+                pass
+        groups = self.samr_connection.list_all_groups(self.target.remote_name, self.options.target_ip)
+        assert 14 == (len(groups)), "number of groups is not as expected"
 
     def test_del_group(self):
-        pass
+        group = self.samr_connection.list_all_groups(self.target.remote_name, self.options.target_ip)
+        gid = None
+        for group in group:
+            if group.name == "Avengers":
+                gid = group.gid
+                break
+        if gid != None:  # not sure if uid 0 is possible
+            self.samr_connection.delete_group(self.target.remote_name, self.options.target_ip, gid)
+            self.test_list_groups()

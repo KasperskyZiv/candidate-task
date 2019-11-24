@@ -14,5 +14,11 @@ class AddUserException(SamrError):
 class DeleteUserException(SamrError):
     pass
 
-class ListGroupsException(SamrError):
+class ListGroupsOrAliasesException(SamrError):
+    pass
+
+class AddGroupException(SamrError):
+    pass
+
+class DeleteGroupException(SamrError):
     pass

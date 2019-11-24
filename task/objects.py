@@ -10,22 +10,30 @@ from impacket.dcerpc.v5.samr import SAMPR_USER_ALL_INFORMATION, SAMPR_ALIAS_GENE
 
 @dataclass
 class User:
-    user_name: str
+    name: str
     uid: int
     user_data: SAMPR_USER_ALL_INFORMATION = None
 
     def __eq__(self, other):
-        return self.user_name == other.user_name and self.uid == other.uid
-
+        return self.name == other.name and self.uid == other.uid
 
 @dataclass
 class Group:
-    group_name: str
+    name: str
     gid: int
     user_data: SAMPR_ALIAS_GENERAL_INFORMATION = None
 
     def __eq__(self, other):
-        return self.group_name == other.group_name and self.gid == other.gid
+        return self.name == other.name and self.gid == other.gid
+
+@dataclass
+class Alias:
+    name: str
+    aid: int
+    user_data: SAMPR_ALIAS_GENERAL_INFORMATION = None
+
+    def __eq__(self, other):
+        return self.name == other.name and self.aid == other.aid
 
 
 @dataclass

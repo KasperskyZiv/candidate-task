@@ -3,7 +3,7 @@
 
 # Standard packages
 import logging
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Union
 
 # External packages
 from impacket.dcerpc.v5 import transport, samr
@@ -13,8 +13,9 @@ from impacket.dcerpc.v5.transport import DCERPCTransport, DCERPCTransportFactory
 from impacket.nt_errors import STATUS_MORE_ENTRIES
 
 # Project packages
-from task.exceptions import ListUsersException, AddUserException, ListGroupsException, DeleteUserException
-from task.objects import User, Group
+from task.exceptions import ListUsersException, AddUserException, DeleteUserException, \
+    ListGroupsOrAliasesException, AddGroupException, DeleteGroupException
+from task.objects import User, Group, Alias
 
 MACHINE_DOMAIN = 0
 BUILTIN_DOMAIN = 1
@@ -120,6 +121,9 @@ class SAMRConnection:
 
     def __get_domain_handel(self, dce: DCERPC) -> Tuple[str, str]:
         """ Returns the first non builtin domain in domain list with domain handel """
+        # I know it's a bit messy but i'm not sure if there would be more then one, non Builtin (whatever that
+        # means), domain return from hSamrEnumerateDomainsInSamServer, and i hate to remove some functionality that
+        # might be in use later
         domains = self.__get_domain_handels(dce)
         domains.pop("Builtin")
         return domains.popitem()
@@ -226,7 +230,7 @@ class SAMRConnection:
 
 
     @dce_connection
-    def list_all_groups(self, remote_name: str, remote_host: str, dce: DCERPC) -> List[User]:
+    def list_all_groups(self, remote_name: str, remote_host: str, dce: DCERPC) -> List[Group]:
         """
         return a list of groups present at remote_name.
 
@@ -235,27 +239,48 @@ class SAMRConnection:
         :param dce: DCE/RPC session created using remote_name and remote_host
         :return: list of groups
         """
+        return self.__list_all(dce, self.__list_all_groups_for_domain, Group)
 
-        groups = []
+    @dce_connection
+    def list_all_aliases(self, remote_name: str, remote_host: str, dce: DCERPC) -> List[Group]:
+        """
+        return a list of Aliases present at remote_name.
+
+        :param remote_name: remote name to use in rpc connection string
+        :param remote_host: remote host to connect to (ip or name)
+        :param dce: DCE/RPC session created using remote_name and remote_host
+        :return: list of Aliases
+        """
+        return self.__list_all(dce, self.__list_all_aliases_for_domain, Alias)
+
+    def __list_all(self, dce: DCERPC, list_function, obj_builder) -> List[Union[Group, Alias]]:
+        """
+        Similar logic for listing groups or alias so this a generic list all
+        :param dce: DCE/RPC session
+        :param list_function:  __list_all_aliases_for_domain or __list_all_groups_for_domain
+        :param obj_builder: Alias or Group obj builder
+        :return: List of objects
+        """
+        entries = []
         try:
+            # iterating over all domains
             for domain_name, domain_handle in self.__get_domain_handels(dce).items():
                 logging.info(f'Looking up groups in domain "{domain_name}"')
-                raw_groups = self.__list_all_groups_for_domain(dce, domain_handle)
-                groups.extend((Group(*entry) for entry in raw_groups))
+                # raw_groups = self.__list_all_groups_for_domain(dce, domain_handle)
+                raw_entries = list_function(dce, domain_handle)
+                if raw_entries:
+                    entries.extend((obj_builder(*entry) for entry in raw_entries))
         except Exception as e:
-            raise ListGroupsException(e)
-
-        return groups
+            raise ListGroupsOrAliasesException(e)
+        return entries
 
     @staticmethod
-    def __list_all_groups_for_domain(dce, domain_handle) -> object:
+    def __list_all_aliases_for_domain(dce, domain_handle) -> object:
         entries = []
         status = STATUS_MORE_ENTRIES
-        enumeration_context = 0
         while status == STATUS_MORE_ENTRIES:
             try:
-                resp = samr.hSamrEnumerateAliasesInDomain(dce, domain_handle,
-                                                          enumerationContext=enumeration_context)
+                resp = samr.hSamrEnumerateAliasesInDomain(dce, domain_handle)
             except DCERPCException as e:
                 if str(e).find('STATUS_MORE_ENTRIES') < 0:
                     raise
@@ -273,3 +298,72 @@ class SAMRConnection:
             enumeration_context = resp['EnumerationContext']
             status = resp['ErrorCode']
         return entries
+
+    @staticmethod
+    def __list_all_groups_for_domain(dce, domain_handle) -> object:
+        entries = []
+        status = STATUS_MORE_ENTRIES
+        while status == STATUS_MORE_ENTRIES:
+            try:
+                resp = samr.hSamrEnumerateGroupsInDomain(dce, domain_handle)
+            except DCERPCException as e:
+                if str(e).find('STATUS_MORE_ENTRIES') < 0:
+                    raise
+
+            for group in resp['Buffer']['Buffer']:
+                # Get group information for each group
+                r = samr.hSamrOpenGroup(dce, domain_handle, samr.MAXIMUM_ALLOWED, group['RelativeId'])
+
+                info = samr.hSamrQueryInformationGroup(dce, r['GroupHandle'])
+                entry = (group['Name'], group['RelativeId'], info['Buffer']['General'])
+                entries.append(entry)
+                samr.hSamrCloseHandle(dce, r['GroupHandle'])
+
+            enumeration_context = resp['EnumerationContext']
+            status = resp['ErrorCode']
+        return entries
+
+
+    @dce_connection
+    def create_group(self, remote_name: str, remote_host: str,  dce: DCERPC, group_name: str):
+        """
+        Create new group
+
+        :param remote_name: remote name to use in rpc connection string
+        :param remote_host: remote host to connect to (ip or name)
+        :param dce: DCE/RPC session created using remote_name and remote_host
+        :param group_name:  name of group to be created
+        """
+
+        domain_name, domain_handle = self.__get_domain_handel(dce)
+        logger.info(f'Creating user "{group_name}" at domain "{domain_name}"')
+        try:
+            # Create user request
+            resp = samr.hSamrCreateGroupInDomain(dce, domain_handle, group_name)
+            logging.info(f"Group {group_name} was created successfully with relative ID: {resp['RelativeId']}")
+        except DCERPCException as e:
+            raise AddGroupException(e)
+
+    @dce_connection
+    def delete_group(self, remote_name: str, remote_host: str, dce: DCERPC, gid: str,
+                    account_type: str = USER_NORMAL_ACCOUNT):
+        """
+        Delete user
+
+        :param remote_name: remote name to use in rpc connection string
+        :param remote_host: remote host to connect to (ip or name)
+        :param dce: DCE/RPC session created using remote_name and remote_host
+        :param uid:  user id to delete
+        :param account_type: see USER_ACCOUNT Codes
+        """
+
+        domain_name, domain_handle = self.__get_domain_handel(dce)
+        logger.info(f'Deleting user id "{gid}" from domain "{domain_name}"')
+        try:
+            # Delete user request
+            resp = samr.hSamrOpenGroup(dce, domain_handle, groupId=gid)
+            group_handel = resp['GroupHandle']
+            resp = samr.hSamrDeleteGroup(dce, group_handel)
+            logging.info(f"User id {gid} was deleted successfully")
+        except DCERPCException as e:
+            raise DeleteGroupException(e)
