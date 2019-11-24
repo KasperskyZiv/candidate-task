@@ -99,7 +99,4 @@ if __name__ == '__main__':
     #     # Output is redirected to a file
     #     sys.stdout = codecs.getwriter('utf8')(sys.stdout)
 
-    dumper = SAMRConnection(target.username, target.password, target.domain, options.hashes, options.aesKey, options.k,
-                            options.dc_ip,
-                            int(options.port))
-    pprint(dumper.list_all_users(target.remote_name, options.target_ip))
+

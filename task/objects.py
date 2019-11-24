@@ -12,7 +12,10 @@ from impacket.dcerpc.v5.samr import SAMPR_USER_ALL_INFORMATION
 class User:
     username: str
     uid: int
-    user_data: SAMPR_USER_ALL_INFORMATION
+    user_data: SAMPR_USER_ALL_INFORMATION = None
+
+    def __eq__(self, other):
+        return self.username == other.username and self.uid == other.uid
 
 
 @dataclass

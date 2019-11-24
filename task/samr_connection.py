@@ -8,19 +8,36 @@ from typing import List, Tuple
 # External packages
 from impacket.dcerpc.v5 import transport, samr
 from impacket.dcerpc.v5.rpcrt import DCERPCException, DCERPC
-from impacket.dcerpc.v5.samr import SAMPR_USER_ALL_INFORMATION
+from impacket.dcerpc.v5.samr import USER_NORMAL_ACCOUNT
 from impacket.dcerpc.v5.transport import DCERPCTransport, DCERPCTransportFactory
 from impacket.nt_errors import STATUS_MORE_ENTRIES
 
 # Project packages
-from task.exceptions import ListUsersException
+from task.exceptions import ListUsersException, AddUserException
 from task.objects import User
 
 logger = logging.getLogger(__name__)
 
 
+def dce_connection(func):
+    """ Wrapper for SAMRConnection methods that needs a DCE/RPC session """
+
+    def wrapper(self, remote_name, remote_host, *args, **kwargs):
+        rpc_transport = self._set_rpc_connection(remote_name, remote_host)
+        dce = self._dce_connect(rpc_transport)
+        try:
+            result = func(self, remote_name, remote_host, dce, *args, **kwargs)
+        finally:
+            # Close dce connection
+            self._dce_disconnect(dce)
+        return result
+
+    return wrapper
+
+
 class SAMRConnection:
     """ This class can be used to connect to a remote windows machine and using SAMR list/add users/groups"""
+
     def __init__(self, username: str = '', password: str = '', domain: str = '', hashes: str = None,
                  aes_key: str = None, do_kerberos: bool = False, kdc_host: str = None, port: int = 445):
 
@@ -37,35 +54,7 @@ class SAMRConnection:
         if hashes is not None:
             self.__lmhash, self.__nthash = hashes.split(':')
 
-    @staticmethod
-    def getUnixTime(t):
-        t -= 116444736000000000
-        t /= 10000000
-        return t
-
-    def list_all_users(self, remote_name: str, remote_host: str) -> List[User]:
-        """return a list of users and shares registered present at
-        remoteName. remoteName is a valid host name or IP address.
-        """
-        # Create an DCE/RPC session
-
-        rpctransport = self.__set_rpc_connection(remote_name, remote_host)
-
-        try:
-            entries = self.__fetch_user_list(rpctransport)
-        except Exception as e:
-            logging.critical(str(e))
-            logging.debug('StackTrace: ', exc_info=True)
-            return []
-
-        # create a User obj for each entry
-        users = [User(*entry) for entry in entries]
-
-        logging.info(f'Received {len(entries)} entries.')
-
-        return users
-
-    def __set_rpc_connection(self, remote_name, remote_host) -> DCERPCTransport:
+    def _set_rpc_connection(self, remote_name, remote_host) -> DCERPCTransport:
         """
         Create an rpc session
         :param remote_name: remote name to use in rpc connection string
@@ -88,7 +77,7 @@ class SAMRConnection:
         return rpc_transport
 
     @staticmethod
-    def __dce_connect(rpc_transport: DCERPCTransport) -> DCERPC:
+    def _dce_connect(rpc_transport: DCERPCTransport) -> DCERPC:
         """
         Create and bind an RPC session to remote host
         :param rpc_transport: RPC session settings
@@ -100,57 +89,129 @@ class SAMRConnection:
         return dce
 
     @staticmethod
-    def __dce_disconnect(dce: DCERPC):
-        """ Stops current dce session"""
+    def _dce_disconnect(dce: DCERPC):
+        """ Stops DCE/RPC session """
         dce.disconnect()
 
-    def __fetch_user_list(self, rpc_transport: DCERPCTransport) -> List[Tuple[str, int, SAMPR_USER_ALL_INFORMATION]]:
-        """ Retrieves user list using SAMR"""
-        entries = []
-        dce = self.__dce_connect(rpc_transport)
+    @staticmethod
+    def __get_domain_handel(dce: DCERPC) -> Tuple[str, str]:
+        """
+        Request domain handel using DCERPC
 
+        :param dce: DCE/RPC session
+        :return: (domain name, domain handel)
+        """
+        resp = samr.hSamrConnect(dce)
+        server_handle = resp['ServerHandle']
+        resp = samr.hSamrEnumerateDomainsInSamServer(dce, server_handle)
+        domains = resp['Buffer']['Buffer']
+        domain_names = [domain["Name"] for domain in domains]
+        logger.info(f'Found domain(s): {", ".join(domain_names)}')
+
+        # TODO: is it possible that the domain we need won't be the first one?
+        domain_name = domain_names[0]
+        resp = samr.hSamrLookupDomainInSamServer(dce, server_handle, domain_name)
+
+        resp = samr.hSamrOpenDomain(dce, serverHandle=server_handle, domainId=resp['DomainId'])
+        domain_handle = resp['DomainHandle']
+        return domain_name, domain_handle
+
+    @staticmethod
+    def __get_unix_time(t):
+        t -= 116444736000000000
+        t /= 10000000
+        return t
+
+    @dce_connection
+    def create_user(self, remote_name: str, remote_host: str,  dce: DCERPC, user_name: str, account_type: str = USER_NORMAL_ACCOUNT):
+        """
+        Create new user
+
+        :param remote_name: remote name to use in rpc connection string
+        :param remote_host: remote host to connect to (ip or name)
+        :param dce: DCE/RPC session created using remote_name and remote_host
+        :param user_name:  name of user to be created
+        :param account_type: see USER_ACCOUNT Codes
+        """
+
+        domain_name, domain_handle = self.__get_domain_handel(dce)
+        logger.info(f'Creating user "{user_name}" at domain "{domain_name}"')
         try:
-            resp = samr.hSamrConnect(dce)
-            server_handle = resp['ServerHandle']
+            # Create user request
+            resp = samr.hSamrCreateUser2InDomain(dce, domain_handle, user_name, accountType=account_type)
+            logging.info("User {name} was created successfully with relative ID: {relative_id}".format(
+                name=user_name, relative_id=resp['RelativeId']))
+        except DCERPCException as e:
+            raise AddUserException(e)
 
-            resp = samr.hSamrEnumerateDomainsInSamServer(dce, server_handle)
-            domains = resp['Buffer']['Buffer']
-            domain_names = [domain["Name"] for domain in domains]
-            logger.info(f'Found domain(s): {", ".join(domain_names)}')
+    @dce_connection
+    def delete_user(self, remote_name: str, remote_host: str, dce: DCERPC, uid: str,
+                    account_type: str = USER_NORMAL_ACCOUNT):
+        """
+        Delete user
 
-            for domain_name in domain_names:
-                logging.info('Looking up users in domain "%s"' % domain_name)
+        :param remote_name: remote name to use in rpc connection string
+        :param remote_host: remote host to connect to (ip or name)
+        :param dce: DCE/RPC session created using remote_name and remote_host
+        :param uid:  user id to delete
+        :param account_type: see USER_ACCOUNT Codes
+        """
 
-                resp = samr.hSamrLookupDomainInSamServer(dce, server_handle, domain_name)
+        domain_name, domain_handle = self.__get_domain_handel(dce)
+        logger.info(f'Deleting user id "{uid}" at domain "{domain_name}"')
+        try:
+            # Delete user request
+            resp = samr.hSamrOpenUser(dce, domain_handle, userId=uid)
+            user_handel = resp['UserHandle']
+            resp = samr.hSamrDeleteUser(dce, user_handel)
+            logging.info(f"User id {uid} was deleted successfully")
+        except DCERPCException as e:
+            raise AddUserException(e)
 
-                resp = samr.hSamrOpenDomain(dce, serverHandle=server_handle, domainId=resp['DomainId'])
-                domain_handle = resp['DomainHandle']
+    @dce_connection
+    def list_all_users(self, remote_name: str, remote_host: str, dce: DCERPC) -> List[User]:
+        """
+        return a list of users and shares registered present at remote_name.
 
-                status = STATUS_MORE_ENTRIES
-                enumeration_context = 0
-                while status == STATUS_MORE_ENTRIES:
-                    try:
-                        resp = samr.hSamrEnumerateUsersInDomain(dce, domain_handle, enumerationContext=enumeration_context)
-                    except DCERPCException as e:
-                        if str(e).find('STATUS_MORE_ENTRIES') < 0:
-                            raise
-                        resp = e.get_packet()
+        :param remote_name: remote name to use in rpc connection string
+        :param remote_host: remote host to connect to (ip or name)
+        :param dce: DCE/RPC session created using remote_name and remote_host
+        :return: list of users
+        """
+        entries = []
+        users = []
+        try:
+            domain_name, domain_handle = self.__get_domain_handel(dce)
 
-                    for user in resp['Buffer']['Buffer']:
-                        r = samr.hSamrOpenUser(dce, domain_handle, samr.MAXIMUM_ALLOWED, user['RelativeId'])
-                        # print("Found user: %s, uid = %d" % (user['Name'], user['RelativeId']))
-                        info = samr.hSamrQueryInformationUser2(dce, r['UserHandle'],
-                                                               samr.USER_INFORMATION_CLASS.UserAllInformation)
-                        entry = (user['Name'], user['RelativeId'], info['Buffer']['All'])
-                        entries.append(entry)
-                        samr.hSamrCloseHandle(dce, r['UserHandle'])
+            logging.info('Looking up users in domain "%s"' % domain_name)
+            status = STATUS_MORE_ENTRIES
+            enumeration_context = 0
+            while status == STATUS_MORE_ENTRIES:
+                try:
+                    resp = samr.hSamrEnumerateUsersInDomain(dce, domain_handle,
+                                                            enumerationContext=enumeration_context)
+                except DCERPCException as e:
+                    if str(e).find('STATUS_MORE_ENTRIES') < 0:
+                        raise
+                    resp = e.get_packet()
 
-                    enumeration_context = resp['EnumerationContext']
-                    status = resp['ErrorCode']
+                for user in resp['Buffer']['Buffer']:
+                    r = samr.hSamrOpenUser(dce, domain_handle, samr.MAXIMUM_ALLOWED, user['RelativeId'])
+                    # print("Found user: %s, uid = %d" % (user['Name'], user['RelativeId']))
+                    info = samr.hSamrQueryInformationUser2(dce, r['UserHandle'],
+                                                           samr.USER_INFORMATION_CLASS.UserAllInformation)
+                    entry = (user['Name'], user['RelativeId'], info['Buffer']['All'])
+                    entries.append(entry)
+                    samr.hSamrCloseHandle(dce, r['UserHandle'])
 
-        except ListUsersException as e:
-            logging.critical("Error listing users: %s" % e)
-            logging.debug('StackTrace: ', exc_info=True)
+                logging.info(f'Received {len(entries)} entries.')
 
-        self.__dce_disconnect(dce)
-        return entries
+                enumeration_context = resp['EnumerationContext']
+                status = resp['ErrorCode']
+                logger.debug(f"enumeration_context {enumeration_context}, status {status}")
+                # create a User obj for each entry
+                users = [User(*entry) for entry in entries]
+        except Exception as e:
+            raise ListUsersException(e)
+
+        return users
