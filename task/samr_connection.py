@@ -17,9 +17,6 @@ from task.exceptions import ListUsersException, AddUserException, DeleteUserExce
     ListGroupsOrAliasesException, AddGroupException, DeleteGroupException
 from task.objects import User, Group, Alias
 
-MACHINE_DOMAIN = 0
-BUILTIN_DOMAIN = 1
-
 logger = logging.getLogger(__name__)
 
 
