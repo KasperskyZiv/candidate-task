@@ -18,10 +18,10 @@ logging.basicConfig(level=logging.DEBUG,
                     stream=sys.stdout)
 
 # Can be changed or loaded from file according to env
-EXPECTED_USERS = [User(name='Administrator', uid=500),
-                  User(name='Guest', uid=501),
-                  User(name='krbtgt', uid=502),
-                  User(name='zivk', uid=1105)]
+EXPECTED_USERS = [User(name='Administrator',  uniq_id=500),
+                  User(name='Guest', uniq_id=501),
+                  User(name='krbtgt', uniq_id=502),
+                  User(name='zivk', uniq_id=1105)]
 
 
 class TestSamrConnection:
@@ -54,7 +54,7 @@ class TestSamrConnection:
         uid = None
         for user in users:
             if user.name == "frank":
-                uid = user.uid
+                uid = user.uniq_id
                 break
         if uid != None:  # not sure if uid 0 is possible
             self.samr_connection.delete_user(self.target.remote_name, self.options.target_ip, uid)
@@ -84,7 +84,7 @@ class TestSamrConnection:
         gid = None
         for group in group:
             if group.name == "Avengers":
-                gid = group.gid
+                gid = group.uniq_id
                 break
         if gid != None:  # not sure if uid 0 is possible
             self.samr_connection.delete_group(self.target.remote_name, self.options.target_ip, gid)

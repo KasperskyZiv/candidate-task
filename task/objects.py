@@ -9,31 +9,27 @@ from impacket.dcerpc.v5.samr import SAMPR_USER_ALL_INFORMATION, SAMPR_ALIAS_GENE
 
 
 @dataclass
-class User:
+class Entity:
     name: str
-    uid: int
-    user_data: SAMPR_USER_ALL_INFORMATION = None
+    uniq_id: int
 
     def __eq__(self, other):
-        return self.name == other.name and self.uid == other.uid
+        return (self.uniq_id, self.name, type(self)) == (other.uniq_id, other.name, type(other))
 
-@dataclass
-class Group:
-    name: str
-    gid: int
-    user_data: SAMPR_ALIAS_GENERAL_INFORMATION = None
 
-    def __eq__(self, other):
-        return self.name == other.name and self.gid == other.gid
+@dataclass(eq=False)
+class User(Entity):
+    data: SAMPR_USER_ALL_INFORMATION = None
 
-@dataclass
-class Alias:
-    name: str
-    aid: int
-    user_data: SAMPR_ALIAS_GENERAL_INFORMATION = None
 
-    def __eq__(self, other):
-        return self.name == other.name and self.aid == other.aid
+@dataclass(eq=False)
+class Group(Entity):
+    data: SAMPR_ALIAS_GENERAL_INFORMATION = None
+
+
+@dataclass(eq=False)
+class Alias(Entity):
+    data: SAMPR_ALIAS_GENERAL_INFORMATION = None
 
 
 @dataclass
