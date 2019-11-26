@@ -2,7 +2,7 @@
 # SAMR 
 
 ## MSRPC using Python
-This is an a tool that uses MSRPC protocol (Microsoft implementation of DCERPC) in order to manage a remote Windows
+This is a tool that uses MSRPC protocol (Microsoft implementation of DCERPC) in order to manage a remote Windows
  machine. 
 You can find any information regarding the MS-SAMR API interface used in the following [link](https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-samr/4df07fab-1bbc-452f-8e92-7853a3c7e380).
 
