@@ -24,6 +24,13 @@ def parse_args() -> object:
     parser = argparse.ArgumentParser(add_help=True, description="This script downloads the list of users for the "
                                                                 "target system.")
 
+    parser.add_argument('command', choices=['list', 'create', 'delete'], metavar="command",
+                        help='command list/create/delete')
+    parser.add_argument('-name', required=sys.argv['command'] == 'create', action='store',
+                        metavar='name of user/group', help='The name of user/group to create')
+    parser.add_argument('-entity-id', required=sys.argv['delete'] == 'create', action='store',
+                        metavar='id of user/group', help='The id of user/group to delete')
+
     parser.add_argument('target', action='store', help='[[domain/]username[:password]@]<targetName or address>')
     parser.add_argument('-debug', action='store_true', help='Turn DEBUG output ON')
 
@@ -94,9 +101,31 @@ if __name__ == '__main__':
                         format=LOG_FORMAT,
                         stream=sys.stdout)
 
-    # # Explicitly changing the stdout encoding format
-    # if sys.stdout.encoding is None:
-    #     # Output is redirected to a file
-    #     sys.stdout = codecs.getwriter('utf8')(sys.stdout)
 
+    # Initialize SAMR instance
+    samr_connection = SAMRConnection(target.username, target.password, target.domain,
+                                         options.hashes,
+                                         options.aesKey,
+                                         options.k,
+                                         options.dc_ip,
+                                         int(options.port))
 
+    if options.command == 'list':
+        if options.object == 'user':
+            users = samr_connection.list_all_users(target.remote_name, options.target_ip)
+            for user in users:
+                print(user)
+        elif options.object == 'group':
+            groups = samr_connection.list_all_groups(target.remote_name, options.target_ip)
+            for group in groups:
+                print(group)
+    elif options.command == 'create':
+        if options.object == 'user':
+            samr_connection.create_user(target.remote_name, options.target_ip, options.name)
+        elif options.object == 'group':
+            samr_connection.create_group(target.remote_name, options.target_ip, options.name)
+    elif options.command == 'delete':
+        if options.object == 'user':
+            samr_connection.delete_user(target.remote_name, options.target_ip, options.name)
+        elif options.object == 'group':
+            samr_connection.delete_group(target.remote_name, options.target_ip, options.name)
