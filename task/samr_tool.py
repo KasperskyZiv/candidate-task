@@ -169,6 +169,6 @@ if __name__ == '__main__':
         if options.entity == 'user':
             samr_connection.delete_user(target.remote_name, options.target_ip, options.entity_id)
         elif options.entity == 'group':
-            samr_connection.delete_group(target.remote_name, options.target_ip, options.entity_id)
+            samr_connection.delete_group(target.remote_name, options.target_ip, int(options.entity_id))
         else:
             print(f'Unsupported entity "{options.entity}"')
