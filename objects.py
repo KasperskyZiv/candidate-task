@@ -21,22 +21,54 @@ class Entity:
 
     @staticmethod
     def create(dce, domain_handle, name) -> 'Entity':
+        """
+        Create an entity using impacket lib
+
+        :param dce: DCE/RPC connection
+        :param domain_handle: The domain handle string
+        :param name: Name of entity to create
+        :return: Created entity
+        """
         pass
 
     @staticmethod
     def delete(dce, entity_handel, uniq_id):
+        """
+        Deletes an entity using impacket lib
+
+        :param dce: DCE/RPC connection
+        :param domain_handle: The domain handle string
+        :param uniq_id: Id of entity to delete
+        :raises: exception if not exists
+        """
         pass
 
     @staticmethod
     def filter_out_domain(domain_name: str) -> bool:
+        """
+        Filter for some domain are not needed when listing some entities (like "Builtin")
+
+        :param domain_name:
+        :return: should use this domain?
+        """
         return False
 
     @staticmethod
     def get_entity(dce, domain_handle, uniq_id) -> 'Entity':
+        """
+         Returns an entity using impacket lib
+
+        :param dce: DCE/RPC connection
+        :param domain_handle: The domain handle string
+        :param uniq_id: Id of entity to delete
+        :return: Requested entity
+        :raises: exception if not exists
+        """
         pass
 
     @staticmethod
     def enumerate(dce, domain_handle):
+        """ Returns an impacket enumeration obj"""
         pass
 
 
@@ -127,7 +159,6 @@ class Alias(Entity):
         samr.hSamrCloseHandle(dce, resp['AliasHandle'])
         return alias
 
-    # TODO: implement create and delete methods
 
 
 @dataclass
