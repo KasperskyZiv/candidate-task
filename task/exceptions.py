@@ -5,20 +5,14 @@
 class SamrError(Exception):
     pass
 
-class ListUsersException(SamrError):
+
+class DeleteEntityException(SamrError):
     pass
 
-class AddUserException(SamrError):
+
+class ListEntitiesException(SamrError):
     pass
 
-class DeleteUserException(SamrError):
-    pass
 
-class ListGroupsOrAliasesException(SamrError):
-    pass
-
-class AddGroupException(SamrError):
-    pass
-
-class DeleteGroupException(SamrError):
+class CreateEntityException(SamrError):
     pass
