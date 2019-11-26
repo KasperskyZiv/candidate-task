@@ -9,7 +9,7 @@ You can find any information regarding the MS-SAMR API interface used in the fol
 It was written as a part of a [home assigment](/task/README.md) for Cymptom.
 
 Current features:
-1. Create\Delete a new local user\group\alias
+1. Create\Delete a local user\group\alias
 2. Retrieve all users\groups\alias
 
 This code can be easily extended for more functionality. 
