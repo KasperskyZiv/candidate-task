@@ -3,7 +3,7 @@
 
 # Standard packages
 import logging
-from typing import List, Tuple, Dict, Union, Type
+from typing import List, Tuple, Dict, Type
 
 # External packages
 from impacket.dcerpc.v5 import transport, samr
@@ -12,8 +12,8 @@ from impacket.dcerpc.v5.transport import DCERPCTransport
 from impacket.nt_errors import STATUS_MORE_ENTRIES
 
 # Project packages
-from task.exceptions import DeleteEntityException, CreateEntityException, ListEntitiesException
-from task.objects import Entity
+from exceptions import DeleteEntityException, CreateEntityException, ListEntitiesException
+from objects import Entity
 
 logger = logging.getLogger(__name__)
 
@@ -59,16 +59,33 @@ class SAMRConnection:
 
         :param remote_name: remote name to use in rpc connection string
         :param remote_host: remote host to connect to (ip or name)
-        :param entity_type:
-        :return: list of users
+        :param entity_type: class of entity to list
+        :return: list of entities
         """
         return self.__list_all_entities(remote_name, remote_host, entity_type)
 
     def delete_entity(self, remote_name: str, remote_host: str, entity_type: Type[Entity], uniq_id: int):
+        """
+        Delete an entity (user, group..) present at remote_name.
+
+        :param uniq_id: Id of entity to delete
+        :param remote_name: remote name to use in rpc connection string
+        :param remote_host: remote host to connect to (ip or name)
+        :param entity_type: class of entity to delete
+        """
         self.__delete_entity(remote_name, remote_host, entity_type, uniq_id)
 
     def create_entity(self, remote_name: str, remote_host: str, entity_type: Type[Entity], name: str):
-        self.__create_entity(remote_name, remote_host, entity_type, name)
+        """
+        Creates an entity (user, group..) present at remote_name.
+
+        :param name: Name of entity to create
+        :param remote_name: remote name to use in rpc connection string
+        :param remote_host: remote host to connect to (ip or name)
+        :param entity_type: class of entity to delete
+        :return entity created
+        """
+        return self.__create_entity(remote_name, remote_host, entity_type, name)
 
     def _set_rpc_connection(self, remote_name, remote_host) -> DCERPCTransport:
         """
@@ -147,6 +164,7 @@ class SAMRConnection:
             # iterating over all domains
             for domain_name, domain_handle in self.__get_domain_handels(dce).items():
                 if entity.filter_out_domain(domain_name):
+                    # filtering domains according to entity logic
                     break
                 logging.info(f'Looking up {entity.__name__} in domain "{domain_name}"')
                 status = STATUS_MORE_ENTRIES
@@ -191,4 +209,4 @@ class SAMRConnection:
         except Exception as e:
             raise CreateEntityException(e)
         logging.info(f'{entity.__class__.__name__} named "{name}" was created successfully with relative ID: {entity.uniq_id}')
-
+        return entity

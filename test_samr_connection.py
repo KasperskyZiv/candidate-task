@@ -3,13 +3,10 @@
 import logging
 import sys
 from argparse import Namespace
-from pprint import pprint
 
-from impacket.dcerpc.v5 import samr
-
-from task.exceptions import CreateEntityException
-from task.objects import Target, User, Group, Alias
-from task.smar_connection import SAMRConnection
+from exceptions import CreateEntityException
+from objects import Target, User, Group, Alias
+from smar_connection import SAMRConnection
 
 logger = logging.getLogger(__name__)
 LOG_FORMAT = "[%(levelname)s]: %(message)s"
@@ -24,7 +21,7 @@ EXPECTED_USERS = [User(name='Administrator', uniq_id=500),
                   User(name='zivk', uniq_id=1105)]
 
 
-class TestSamrConnection:
+class TestSAMRConnection:
     test_user = None
     test_group = None
     samr_connection = None
@@ -44,7 +41,6 @@ class TestSamrConnection:
                                              cls.options.k,
                                              cls.options.dc_ip,
                                              int(cls.options.port))
-
 
     def test_list_all_users(self):
         users = self.samr_connection.list_all_entities(self.target.remote_name, self.options.target_ip, User)

@@ -5,16 +5,13 @@
 import sys
 import logging
 import argparse
-import codecs
-from pprint import pprint
 
 # External packages
 # from impacket import version
 
 
 # Project packages
-from task.objects import Target
-from task.samr_connection import SAMRConnection
+from objects import Target
 
 logger = logging.getLogger(__name__)
 
