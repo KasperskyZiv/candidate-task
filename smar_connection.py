@@ -198,7 +198,7 @@ class SAMRConnection:
             entity.delete(dce, domain_handle, uniq_id)
         except Exception as e:
             raise DeleteEntityException(e)
-        logging.info(f'{entity.__name__} id ("){uniq_id}) was deleted successfully')
+        logging.info(f'{entity.__name__} id ({uniq_id}) was deleted successfully')
 
     @dce_connection
     def __create_entity(self, dce: DCERPC, entity: Entity, name: str):

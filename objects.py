@@ -2,7 +2,7 @@
 # Created by Ziv Kaspersky at 11/23/2019
 
 # Standard packages
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # External packages
 from impacket.dcerpc.v5 import samr
@@ -14,6 +14,7 @@ from impacket.dcerpc.v5.samr import SAMPR_USER_ALL_INFORMATION, SAMPR_ALIAS_GENE
 class Entity:
     name: str
     uniq_id: int
+    metadata: object = field(repr=False)
 
     def __eq__(self, other):
         return (self.uniq_id, self.name, type(self)) == (other.uniq_id, other.name, type(other))
@@ -41,7 +42,7 @@ class Entity:
 
 @dataclass(eq=False)
 class User(Entity):
-    data: SAMPR_USER_ALL_INFORMATION = None
+    metadata: SAMPR_USER_ALL_INFORMATION = field(repr=False, default=None)
 
     @staticmethod
     def delete(dce, domain_handle, uniq_id):
@@ -73,7 +74,7 @@ class User(Entity):
 
 @dataclass(eq=False)
 class Group(Entity):
-    data: SAMPR_GROUP_GENERAL_INFORMATION = None
+    metadata: SAMPR_GROUP_GENERAL_INFORMATION = field(repr=False, default=None)
 
     @staticmethod
     def delete(dce, domain_handle, uniq_id):
@@ -101,7 +102,18 @@ class Group(Entity):
 
 @dataclass(eq=False)
 class Alias(Entity):
-    data: SAMPR_ALIAS_GENERAL_INFORMATION = None
+    metadata: SAMPR_ALIAS_GENERAL_INFORMATION = field(repr=False, default=None)
+
+    @staticmethod
+    def delete(dce, domain_handle, uniq_id):
+        resp = samr.hSamrOpenAlias(dce, domain_handle, aliasId=uniq_id)
+        group_handel = resp['AliasHandle']
+        samr.hSamrDeleteAlias(dce, group_handel)
+
+    @staticmethod
+    def create(dce, domain_handle, name):
+        resp = samr.hSamrCreateAliasInDomain(dce, domain_handle, name)
+        return Group(name, resp['RelativeId'])
 
     @staticmethod
     def enumerate(dce, domain_handle):
