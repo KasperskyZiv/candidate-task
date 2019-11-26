@@ -1,16 +1,48 @@
 #!/usr/bin/env python3
 # Created by Ziv Kaspersky at 11/23/2019
+"""
+usage: samr_tool.py [-h] [-debug] [-dc-ip ip address] [-target-ip ip address]
+                    [-port [destination port]] [-hashes LMHASH:NTHASH]
+                    [-no-pass] [-k] [-aesKey hex key]
+                    command target
 
+This script downloads the list of users for the target system.
+
+positional arguments:
+  command               command list/create/delete
+  target                [[domain/]username[:password]@]<targetName or address>
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -debug                Turn DEBUG output ON
+
+connection:
+  -dc-ip ip address     IP Address of the domain controller. If ommited it use
+                        the domain part (FQDN) specified in the target
+                        parameter
+  -target-ip ip address
+                        IP Address of the target machine. If ommited it will
+                        use whatever was specified as target. This is useful
+                        when target is the NetBIOS name and you cannot resolve
+                        it
+  -port [destination port]
+                        Destination port to connect to SMB Server
+
+authentication:
+  -hashes LMHASH:NTHASH
+                        NTLM hashes, format is LMHASH:NTHASH
+  -no-pass              don't ask for password (useful for -k)
+  -k                    Use Kerberos authentication. Grabs credentials from
+                        ccache file (KRB5CCNAME) based on target parameters.
+                        If valid credentials cannot be found, it will use the
+                        ones specified in the command line
+  -aesKey hex key       AES key to use for Kerberos Authentication (128 or 256
+                        bits)
+"""
 # Standard packages
 import sys
 import logging
 import argparse
-import codecs
-from pprint import pprint
-
-# External packages
-# from impacket import version
-
 
 # Project packages
 from task.objects import Target
@@ -26,12 +58,15 @@ def parse_args() -> object:
 
     parser.add_argument('command', choices=['list', 'create', 'delete'], metavar="command",
                         help='command list/create/delete')
-    parser.add_argument('-name', required=sys.argv['command'] == 'create', action='store',
+    parser.add_argument('entity', choices=['group', 'user', 'alias'], metavar="entity",
+                        help='The entity (group/user/alias) to list/create/delete')
+    parser.add_argument('target', action='store', help='[[domain/]username[:password]@]<targetName or address>')
+    parser.add_argument('-name', required='create' in sys.argv, action='store',
                         metavar='name of user/group', help='The name of user/group to create')
-    parser.add_argument('-entity-id', required=sys.argv['delete'] == 'create', action='store',
+    parser.add_argument('-entity-id', required='delete' in sys.argv == 'create', action='store',
                         metavar='id of user/group', help='The id of user/group to delete')
 
-    parser.add_argument('target', action='store', help='[[domain/]username[:password]@]<targetName or address>')
+
     parser.add_argument('-debug', action='store_true', help='Turn DEBUG output ON')
 
     group = parser.add_argument_group('connection')
@@ -111,21 +146,29 @@ if __name__ == '__main__':
                                          int(options.port))
 
     if options.command == 'list':
-        if options.object == 'user':
+        if options.entity == 'user':
             users = samr_connection.list_all_users(target.remote_name, options.target_ip)
             for user in users:
                 print(user)
-        elif options.object == 'group':
+        elif options.entity == 'group':
+            groups = samr_connection.list_all_groups(target.remote_name, options.target_ip)
+            for group in groups:
+                print(group)
+        elif options.entity == 'alias':
             groups = samr_connection.list_all_groups(target.remote_name, options.target_ip)
             for group in groups:
                 print(group)
     elif options.command == 'create':
-        if options.object == 'user':
+        if options.entity == 'user':
             samr_connection.create_user(target.remote_name, options.target_ip, options.name)
-        elif options.object == 'group':
+        elif options.entity == 'group':
             samr_connection.create_group(target.remote_name, options.target_ip, options.name)
+        else:
+            print(f'Unsupported entity "{options.entity}"')
     elif options.command == 'delete':
-        if options.object == 'user':
-            samr_connection.delete_user(target.remote_name, options.target_ip, options.name)
-        elif options.object == 'group':
-            samr_connection.delete_group(target.remote_name, options.target_ip, options.name)
+        if options.entity == 'user':
+            samr_connection.delete_user(target.remote_name, options.target_ip, options.entity_id)
+        elif options.entity == 'group':
+            samr_connection.delete_group(target.remote_name, options.target_ip, options.entity_id)
+        else:
+            print(f'Unsupported entity "{options.entity}"')
